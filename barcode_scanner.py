@@ -1,48 +1,73 @@
-# barcode_scanner.py
-
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from db import SessionLocal
+from models import Product
+from sqlalchemy import select
 import cv2
+import numpy as np
+import base64
 from pyzbar.pyzbar import decode
-import pandas as pd
 
-def load_database(path="database.csv"):
-    """Carga la base de datos de botellas desde un archivo CSV."""
-    return pd.read_csv(path)
+app = Flask(__name__)
+CORS(app)
 
-def scan_barcode():
-    """Escanea código de barras usando la cámara y pyzbar."""
-    cap = cv2.VideoCapture(0)
-    print("\n📸 Escanea el código de barras de la botella (presiona 'q' para salir).")
+@app.post("/scan-barcode-image")
+def scan_barcode_image():
+    """Receives a base64-encoded image, decodes the barcode, and checks DB."""
+    try:
+        data = request.get_json(force=True)
+        image_b64 = data.get("image")
 
-    detected_code = None
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            continue
+        if not image_b64:
+            return jsonify({"error": "No image data provided"}), 400
 
-        # Decodifica códigos detectados
+        # Decode base64 image
+        image_bytes = base64.b64decode(image_b64.split(",")[-1])
+        np_arr = np.frombuffer(image_bytes, np.uint8)
+        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+        # Detect barcodes
         barcodes = decode(frame)
-        for barcode in barcodes:
-            detected_code = barcode.data.decode('utf-8')
-            (x, y, w, h) = barcode.rect
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0,255,0), 2)
-            cv2.putText(frame, detected_code, (x, y-10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,0), 2)
-            print(f"\n✅ Código detectado: {detected_code}")
-            cap.release()
-            cv2.destroyAllWindows()
-            return detected_code
+        if not barcodes:
+            return jsonify({"success": False, "message": "No barcode detected"}), 404
 
-        cv2.imshow('Escáner de Botellas', frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        # Take first detected barcode
+        barcode_value = barcodes[0].data.decode("utf-8").strip()
 
-    cap.release()
-    cv2.destroyAllWindows()
-    return None
+        # Check product in DB
+        db = SessionLocal()
+        product = db.execute(
+            select(Product).where(Product.product_barcode == barcode_value)
+        ).scalars().first()
+        db.close()
 
-def get_bottle_info(barcode, df):
-    """Obtiene los datos de la botella a partir del código escaneado."""
-    record = df[df["Bottle_ID"] == barcode]
-    if record.empty:
-        return None
-    return record.iloc[0].to_dict()
+        if not product:
+            return jsonify({
+                "success": True,
+                "found": False,
+                "barcode": barcode_value,
+                "message": "Product not found in database"
+            }), 200
+
+        return jsonify({
+            "success": True,
+            "found": True,
+            "barcode": barcode_value,
+            "product_name": product.product_name,
+            "brand": product.brand,
+            "category": product.category,
+            "bottle_size": product.bottle_size
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.get("/health")
+def health():
+    return jsonify({"status": "ok"}), 200
+
+
+if __name__ == "__main__":
+    print("🚀 Flask backend running at http://127.0.0.1:6060")
+    app.run(host="0.0.0.0", port=6060, debug=True)

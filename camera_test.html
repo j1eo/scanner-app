@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>📸 Barcode Image Scanner</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #fafafa;
+      margin: 2rem;
+    }
+    video, canvas {
+      display: block;
+      margin-top: 1rem;
+      border: 2px solid #ccc;
+      border-radius: 8px;
+      width: 320px;
+    }
+    button {
+      background-color: #0078d7;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      padding: 0.5rem 1rem;
+      margin: 0.5rem 0;
+      cursor: pointer;
+    }
+    button:hover { background-color: #005fa3; }
+    #result { font-size: 1.1rem; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>📦 Barcode Image Scanner</h1>
+  <button id="startCameraBtn">📷 Start Camera</button>
+  <button id="captureBtn" disabled>📸 Capture Photo</button>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas" style="display:none;"></canvas>
+  <div id="result">—</div>
+
+  <script>
+    const API_URL = "http://127.0.0.1:6060/scan-barcode-image";
+    const startBtn = document.getElementById("startCameraBtn");
+    const captureBtn = document.getElementById("captureBtn");
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const resultDiv = document.getElementById("result");
+    let stream = null;
+
+    startBtn.addEventListener("click", async () => {
+      if (stream) {
+        stopCamera();
+        return;
+      }
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        video.srcObject = stream;
+        captureBtn.disabled = false;
+        startBtn.textContent = "🛑 Stop Camera";
+      } catch (err) {
+        alert("❌ Could not access camera: " + err);
+      }
+    });
+
+    function stopCamera() {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+      video.srcObject = null;
+      captureBtn.disabled = true;
+      startBtn.textContent = "📷 Start Camera";
+    }
+
+    captureBtn.addEventListener("click", async () => {
+      if (!stream) return alert("Camera not active.");
+
+      // Draw frame to canvas
+      const context = canvas.getContext("2d");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Convert to base64
+      const imageData = canvas.toDataURL("image/jpeg");
+      resultDiv.textContent = "⏳ Processing...";
+
+      try {
+        const response = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: imageData })
+        });
+
+        const data = await response.json();
+        console.log(data);
+
+        if (data.success && data.found) {
+          resultDiv.textContent = `✅ Found: ${data.product_name} (${data.brand})`;
+          resultDiv.style.color = "green";
+        } else if (data.success && !data.found) {
+          resultDiv.textContent = `❌ ${data.message || "Product not found"}`;
+          resultDiv.style.color = "red";
+        } else {
+          resultDiv.textContent = "⚠️ No barcode detected or server error.";
+          resultDiv.style.color = "orange";
+        }
+      } catch (err) {
+        resultDiv.textContent = "❌ Error: " + err;
+        resultDiv.style.color = "red";
+      }
+    });
+  </script>
+</body>
+</html>

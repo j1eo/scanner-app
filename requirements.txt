@@ -2,4 +2,5 @@ opencv-python
 pyzbar
 pandas
 numpy
-
+flask
+flask-cors

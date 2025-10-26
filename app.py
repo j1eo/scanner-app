@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask, request, jsonify
 from datetime import date, datetime
 from db import SessionLocal
@@ -7,29 +6,22 @@ from logic_evaluator import evaluate_action
 from pending_store import PENDING
 from sqlalchemy import select
 from flask_cors import CORS
-import cv2
-import numpy as np
-import base64
+import cv2, numpy as np, base64
 from pyzbar.pyzbar import decode
 
 app = Flask(__name__)
-
-# ✅ Allow CORS from anywhere, including file:// pages
 CORS(app, resources={r"/*": {"origins": ["*", "null"]}}, supports_credentials=True)
 
-
-# ---------- IMAGE SCAN ENDPOINT ----------
+# ───────────────────── IMAGE SCAN ENDPOINT ─────────────────────
 
 @app.route("/scan-barcode-image", methods=["POST", "OPTIONS"])
 def scan_barcode_image():
-    """Receives a base64-encoded image, decodes the barcode, and checks DB."""
-    # Handle CORS preflight manually
     if request.method == "OPTIONS":
-        response = jsonify({"status": "ok"})
-        response.headers.add("Access-Control-Allow-Origin", "*")
-        response.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
-        response.headers.add("Access-Control-Allow-Headers", "Content-Type")
-        return response, 200
+        resp = jsonify({"status": "ok"})
+        resp.headers.add("Access-Control-Allow-Origin", "*")
+        resp.headers.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+        resp.headers.add("Access-Control-Allow-Headers", "Content-Type")
+        return resp, 200
 
     try:
         data = request.get_json(force=True)
@@ -37,19 +29,15 @@ def scan_barcode_image():
         if not image_b64:
             return jsonify({"error": "No image data provided"}), 400
 
-        # Decode base64 image from data URL
         image_bytes = base64.b64decode(image_b64.split(",")[-1])
         np_arr = np.frombuffer(image_bytes, np.uint8)
         frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-        # Detect barcode(s)
         barcodes = decode(frame)
         if not barcodes:
             return jsonify({"success": False, "message": "No barcode detected"}), 404
 
         barcode_value = barcodes[0].data.decode("utf-8").strip()
-
-        # Check if barcode exists in DB
         db = SessionLocal()
         product = db.execute(
             select(Product).where(Product.product_barcode == barcode_value)
@@ -58,15 +46,13 @@ def scan_barcode_image():
 
         if not product:
             return jsonify({
-                "success": True,
-                "found": False,
+                "success": True, "found": False,
                 "barcode": barcode_value,
                 "message": "Product not found in database"
             }), 200
 
         return jsonify({
-            "success": True,
-            "found": True,
+            "success": True, "found": True,
             "barcode": barcode_value,
             "product_name": product.product_name,
             "brand": product.brand,
@@ -78,8 +64,7 @@ def scan_barcode_image():
         app.logger.error(f"Error decoding image: {e}")
         return jsonify({"error": str(e)}), 500
 
-
-# ---------- HELPERS ----------
+# ───────────────────── HELPERS ─────────────────────
 
 def get_or_create_flight(db, *, airline_id, flight_number, origin, destination, flight_date, service_class):
     stmt = select(Flight).where(
@@ -91,7 +76,6 @@ def get_or_create_flight(db, *, airline_id, flight_number, origin, destination, 
     flight = db.execute(stmt).scalars().first()
     if flight:
         return flight
-
     flight = Flight(
         airline_id=airline_id,
         flight_number=flight_number,
@@ -100,38 +84,51 @@ def get_or_create_flight(db, *, airline_id, flight_number, origin, destination, 
         flight_date=flight_date,
         service_class=service_class
     )
-    db.add(flight)
-    db.commit()
-    db.refresh(flight)
+    db.add(flight); db.commit(); db.refresh(flight)
     return flight
 
-
-def find_guideline(db, *, airline_id, liquor_type, service_class):
-    stmt = select(GuidelineTemplate).where(
-        GuidelineTemplate.airline_id == airline_id,
-        GuidelineTemplate.liquor_type == liquor_type,
-        GuidelineTemplate.service_class == service_class,
-        GuidelineTemplate.is_active == True
-    ).order_by(GuidelineTemplate.min_fill_level_threshold.desc())
-    return db.execute(stmt).scalars().first()
-
-
-# ---------- EXISTING API ROUTES ----------
+# ───────────────────── BASE ROUTES ─────────────────────
 
 @app.get("/health")
 def health_check():
     return jsonify({"status": "✅ API running", "timestamp": datetime.utcnow().isoformat()}), 200
 
+# ───────────────────── AIRLINE ENDPOINTS ─────────────────────
+
+@app.get("/airlines")
+def list_airlines():
+    """Return all airlines for dropdown/autocomplete."""
+    db = SessionLocal()
+    rows = db.query(Airline).all()
+    db.close()
+    return jsonify([
+        {"airline_id": a.airline_id, "airline_code": a.airline_code, "airline_name": a.airline_name}
+        for a in rows
+    ])
+
+@app.get("/airline/by-name/<string:name>")
+def airline_by_name(name):
+    """Return a single airline by its name."""
+    db = SessionLocal()
+    airline = db.query(Airline).filter(Airline.airline_name == name).first()
+    db.close()
+    if not airline:
+        return jsonify({"error": "Airline not found"}), 404
+    return jsonify({
+        "airline_id": airline.airline_id,
+        "airline_code": airline.airline_code,
+        "airline_name": airline.airline_name
+    })
+
+# ───────────────────── BARCODE ENDPOINTS ─────────────────────
 
 @app.get("/barcode/check/<string:barcode>")
 def check_barcode(barcode):
-    """Verifies if a barcode exists in the DB."""
     db = SessionLocal()
     try:
         product = db.execute(
             select(Product).where(Product.product_barcode == barcode)
         ).scalars().first()
-
         if product:
             return jsonify({
                 "exists": True,
@@ -141,18 +138,12 @@ def check_barcode(barcode):
                 "brand": product.brand,
                 "bottle_size": product.bottle_size
             }), 200
-        else:
-            return jsonify({
-                "exists": False,
-                "barcode": barcode,
-                "message": "Product not found in database"
-            }), 404
+        return jsonify({"exists": False, "barcode": barcode, "message": "Not found"}), 404
     except Exception as e:
         app.logger.error(f"Error checking barcode: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
         db.close()
-
 
 @app.post("/barcode/register")
 def register_barcode():
@@ -161,14 +152,12 @@ def register_barcode():
     airline_code = (data.get("airline_code") or "").strip()
     flight_number = (data.get("flight_number") or "").strip()
     service_class = (data.get("service_class") or "").strip()
-    origin = data.get("origin")
-    destination = data.get("destination")
+    origin = data.get("origin"); destination = data.get("destination")
     flight_date_str = data.get("flight_date")
 
     if not barcode or not airline_code or not flight_number or not service_class:
         return jsonify({"error": "Missing required fields"}), 400
 
-    # Parse date
     if flight_date_str:
         try:
             fdate = datetime.fromisoformat(flight_date_str).date()
@@ -242,8 +231,7 @@ def register_barcode():
     finally:
         db.close()
 
-
-# ---------- MAIN ----------
+# ───────────────────── MAIN ─────────────────────
 
 if __name__ == "__main__":
     print("🚀 Flask API running on http://127.0.0.1:6060 ...")

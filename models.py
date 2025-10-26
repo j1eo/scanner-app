@@ -9,7 +9,7 @@ Base = declarative_base()
 
 class Airline(Base):
     __tablename__ = "airlines"
-    airline_id = Column(Integer, primary_key=True)
+    airline_id = Column(Integer, primary_key=True, autoincrement=True)  # ✅ FIX
     airline_code = Column(String, nullable=False)
     airline_name = Column(String, nullable=False)
 
@@ -23,14 +23,14 @@ class Product(Base):
 
 class GuidelineTemplate(Base):
     __tablename__ = "guideline_templates"
-    guideline_id = Column(Integer, primary_key=True)
+    guideline_id = Column(Integer, primary_key=True, autoincrement=True)  # ✅ FIX
     airline_id = Column(Integer, ForeignKey("airlines.airline_id"), nullable=False)
-    liquor_type = Column(String, nullable=False)    # matches Product.category
-    service_class = Column(String, nullable=False)  # Business / First
+    liquor_type = Column(String, nullable=False)
+    service_class = Column(String, nullable=False)
     policy_name = Column(String, nullable=False)
     min_cleanliness_score = Column(Integer, nullable=False)
-    allowed_seal_status = Column(String, nullable=False)          # e.g. 'sealed','resealed','any'
-    allowed_bottle_condition = Column(String, nullable=False)     # 'Good','Excellent','Fair','Damaged','any'
+    allowed_seal_status = Column(String, nullable=False)
+    allowed_bottle_condition = Column(String, nullable=False)
     min_fill_level_threshold = Column(DECIMAL, nullable=False)
     label_requirements = Column(String, nullable=False)
     notes = Column(Text)
@@ -40,7 +40,7 @@ class GuidelineTemplate(Base):
 
 class Flight(Base):
     __tablename__ = "flights"
-    flight_id = Column(Integer, primary_key=True)
+    flight_id = Column(Integer, primary_key=True, autoincrement=True)  # ✅ FIX
     airline_id = Column(Integer, ForeignKey("airlines.airline_id"), nullable=False)
     flight_number = Column(String, nullable=False)
     origin = Column(String, nullable=False)
@@ -52,7 +52,7 @@ class Flight(Base):
 
 class BottleRecord(Base):
     __tablename__ = "bottle_records"
-    record_id = Column(Integer, primary_key=True)
+    record_id = Column(Integer, primary_key=True, autoincrement=True)  # ✅ FIX
     product_barcode = Column(String, ForeignKey("products.product_barcode"), nullable=False)
     airline_id = Column(Integer, ForeignKey("airlines.airline_id"), nullable=False)
     flight_id = Column(Integer, ForeignKey("flights.flight_id"), nullable=False)
